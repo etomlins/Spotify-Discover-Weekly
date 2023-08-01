@@ -3,6 +3,13 @@ import time
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from flask import Flask, request, url_for, session, redirect
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+my_client_id = os.getenv("CLIENT_ID")
+my_client_secret = os.getenv("CLIENT_SECRET")
 
 # initialize Flask app
 app = Flask(__name__)
@@ -11,7 +18,7 @@ app = Flask(__name__)
 app.config['SESSION_COOKIE_NAME'] = 'Spotify Cookie'
 
 # set a random secret key to sign the cookie
-app.secret_key = 'YOUR_SECRET_KEY'
+app.secret_key = my_client_secret
 
 # set the key for the token info in the session dictionary
 TOKEN_INFO = 'token_info'
@@ -36,11 +43,11 @@ def redirect_page():
     # save the token info in the session
     session[TOKEN_INFO] = token_info
     # redirect the user to the save_discover_weekly route
-    return redirect(url_for('save_discover_weekly',_external=True))
+    return redirect(url_for('save_ultimate_top_ten',_external=True))
 
 # route to save the Discover Weekly songs to a playlist
-@app.route('/saveDiscoverWeekly')
-def save_discover_weekly():
+@app.route('/saveUltimateTopTen')
+def save_ultimate_top_ten():
     try: 
         # get the token info from the session
         token_info = get_token()
@@ -52,34 +59,29 @@ def save_discover_weekly():
     # create a Spotipy instance with the access token
     sp = spotipy.Spotify(auth=token_info['access_token'])
 
-    # get the user's playlists
-    current_playlists =  sp.current_user_playlists()['items']
-    discover_weekly_playlist_id = None
-    saved_weekly_playlist_id = None
-
-    # find the Discover Weekly and Saved Weekly playlists
-    for playlist in current_playlists:
-        if(playlist['name'] == 'Discover Weekly'):
-            discover_weekly_playlist_id = playlist['id']
-        if(playlist['name'] == 'Saved Weekly'):
-            saved_weekly_playlist_id = playlist['id']
-    
-    # if the Discover Weekly playlist is not found, return an error message
-    if not discover_weekly_playlist_id:
-        return 'Discover Weekly not found.'
-    
-    # get the tracks from the Discover Weekly playlist
-    discover_weekly_playlist = sp.playlist_items(discover_weekly_playlist_id)
+    # find user's top ten tracks of all time
+    top_tracks = sp.current_user_top_tracks(limit=10, offset=0, time_range='long_term')['items']
     song_uris = []
-    for song in discover_weekly_playlist['items']:
-        song_uri= song['track']['uri']
+    for song in top_tracks:
+        song_uri = song['id']
         song_uris.append(song_uri)
     
-    # add the tracks to the Saved Weekly playlist
-    sp.user_playlist_add_tracks("YOUR_USER_ID", saved_weekly_playlist_id, song_uris, None)
+    # find user
+    user_id = sp.current_user()['id']
+    user_display_name = sp.current_user()['display_name']
+    playlist_name = f"{user_display_name}'s Ultimate Top Ten Songs"
+    desc = f"{user_display_name} is a music legend. Here's the songs loved most by yours truly."
+
+    # actually make playlist
+    ultimate_playlist = sp.user_playlist_create(user_id, 
+    playlist_name, 
+    public=True, 
+    collaborative=False, 
+    description=desc)
+    sp.user_playlist_add_tracks(user_id,ultimate_playlist['id'],song_uris)
 
     # return a success message
-    return ('Discover Weekly songs added successfully')
+    return ('IT WORKED!')
 
 # function to get the token info from the session
 def get_token():
@@ -100,10 +102,11 @@ def get_token():
 
 def create_spotify_oauth():
     return SpotifyOAuth(
-        client_id = 'YOUR_CLIENT_ID',
-        client_secret = 'YOUR_CLIENT_SECRET',
+        client_id = my_client_id,
+        client_secret = my_client_secret,
         redirect_uri = url_for('redirect_page', _external=True),
-        scope='user-library-read playlist-modify-public playlist-modify-private'
+        scope='user-top-read playlist-modify-public playlist-modify-private user-read-private user-read-email'
     )
+
 
 app.run(debug=True)
